@@ -131,6 +131,6 @@ pub fn handle_xhr_is_match_route<T>(req: &hyper::Request<T>) -> bool {
 pub fn handle_xhr_is_pass_secret<T>(req: &Request<T>) -> bool {
     let secret = get_secret_str();
     let path = req.uri().path();
-    let expected_path_prefix = format!("{}/{}", API_PREFIX, secret);
+    let expected_path_prefix = format!("{}/{}/", API_PREFIX, secret);
     path.starts_with(&expected_path_prefix)
 }

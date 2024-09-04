@@ -4,7 +4,6 @@ use tokio::time::timeout;
 use hyper::{Body, Request, Response, StatusCode};
 
 pub async fn handle_command<T>(req: Request<T>) -> Response<Body> where T: hyper::body::HttpBody + 'static, {
-    
     // 获取请求体
     let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
         Ok(bytes) => bytes,
@@ -92,7 +91,6 @@ pub async fn handle_command<T>(req: Request<T>) -> Response<Body> where T: hyper
         Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(Body::from("Internal server error")).expect("Failed to build error response")
     })
 }
-
 pub fn handle_command_is_match_route<T>(req: &hyper::Request<T>) -> bool {
     return req.uri().path().starts_with("/api/cmd");
 }
