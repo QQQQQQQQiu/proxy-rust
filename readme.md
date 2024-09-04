@@ -25,18 +25,14 @@
 
 2. GET
 
-### 接口令牌存放
-1. 请求头
-	```
-    s:${secret}
-    ```
+### 接口令牌
+1. 请求头```s:${secret}```
 
     
-### 请求参数
+### 接口说明
 
-### 参数示例
-
-* 执行命令
+### /api/cmd
+* 请求参数
 
 	```
         [
@@ -50,11 +46,17 @@
             }
         ]
     ```
-    响应：[{id: 'c1', output: ''},{id: 'c2', output: ''}]
+* 请求参数 
+	响应：```[{id: 'c1', output: ''},{id: 'c2', output: ''}]```
         
+### /api/xhr 
+* 鉴权 
+    1. 请求头
+    2. 请求路径 ```/api/xhr/${secret}/*** ```  
 
-* 接口代理 
+* 参数 
 
+    1.  post - body
 	```
         {
             "throwHeaders": false, // 是否把响应头放进body
@@ -66,3 +68,11 @@
             body: ""
         }
 	```
+    2. get - query
+    ``` 
+        /api/xhr/${secret?}/https://api.myip.com 
+    ```  
+    3. get - query
+    ``` 
+        /api/xhr/${secret?}/${encodeURIComponent(JSON.stringify(post-body))} 
+    ```  

@@ -37,9 +37,9 @@ async fn main() {
 }
 
 async fn handle_request(req: Request<Body>) -> Result<Response<Body>, String> {
-
     let secret_pass =  match () {
         _ if handle_xhr_is_pass_secret(&req) => true,
+        _ if handle_doc_is_match_route(&req) => true,
         _ => false,
     };
     
@@ -54,12 +54,15 @@ async fn handle_request(req: Request<Body>) -> Result<Response<Body>, String> {
         _ if handle_xhr_is_match_route(&req) => handle_xhr(req).await,
         _ => Response::builder().status(hyper::StatusCode::NOT_FOUND).body(Body::from("404")).expect("Failed to create NOT_FOUND response"),
     };
-    
-    
     // 支持跨域
-    resp.headers_mut().insert("Access-Control-Allow-Headers", "*".parse().unwrap());
-    resp.headers_mut().insert("Access-Control-Allow-Methods", "*".parse().unwrap());
-    resp.headers_mut().insert("Access-Control-Allow-Origin", "*".parse().unwrap());
+    for header in [
+        ("Access-Control-Allow-Headers", "*"),
+        ("Access-Control-Allow-Methods", "*"),
+        ("Access-Control-Allow-Origin", "*"),
+    ] {
+        resp.headers_mut().insert(header.0, header.1.parse().unwrap());
+    }
+    println!("[main] route done");
 
     Ok(resp)
 }
