@@ -1,4 +1,4 @@
-use hyper::{Client, Request, Body, Response, Method, StatusCode};
+use hyper::{Client, Request, Body, Response, Method, StatusCode, client::{HttpConnector}};
 use hyper::header::{HeaderValue};
 use hyper_tls::HttpsConnector;
 use serde_json::Value;
@@ -9,6 +9,13 @@ use std::collections::HashMap;
 
 const API_PREFIX: &str = "/api/xhr";
 
+lazy_static::lazy_static! {
+    static ref CLIENT: Client<HttpsConnector<HttpConnector>> = {
+        let https = HttpsConnector::new();
+        Client::builder().build::<_, Body>(https)
+    };
+}
+
 pub async fn handle_xhr<T>(req: Request<T>) -> Response<Body> where T: hyper::body::HttpBody + Send + 'static,{
     let options = match get_options(req).await {
         Ok(data) => data,
@@ -17,12 +24,9 @@ pub async fn handle_xhr<T>(req: Request<T>) -> Response<Body> where T: hyper::bo
             return Response::builder().status(StatusCode::BAD_REQUEST).body(Body::from("Bad Request")).unwrap();
         }
     };
-    // eprintln!("Parsed JSON data: {:?}", options);
+    eprintln!("Parsed JSON data: {:?}", options);
 
 
-    // 创建客户端
-    let https = HttpsConnector::new();
-    let client = Client::builder().build::<_, hyper::Body>(https);
     let url = options.url.trim();
     let method = options.method.as_str();
     let headers = options.headers;
@@ -34,9 +38,8 @@ pub async fn handle_xhr<T>(req: Request<T>) -> Response<Body> where T: hyper::bo
     };
 
     // 构建请求
-    // println!("request url: {}", url);
+    println!("request url: {}", url);
     let mut request_builder = Request::builder().method(method).uri(url);
-
     // 添加请求头
     for (key, value) in headers {
         let header_value = match value {
@@ -47,18 +50,23 @@ pub async fn handle_xhr<T>(req: Request<T>) -> Response<Body> where T: hyper::bo
         request_builder = request_builder.header(key.as_str(), HeaderValue::from_str(&header_value).unwrap());
     }
     
-    let request = request_builder.body(Body::from(body)).unwrap();
-
+    let request = request_builder.body(Body::from(body)).expect("Failed to build request body");
+    println!("request_builder done");
+    
     // 发送请求并获取响应
-    let res = match client.request(request).await {
-        Ok(response) => response,
+    let res = match send_request(request).await {
+        Ok(response) => {
+            println!("Request sent successfully");
+            response
+        },
         Err(e) => {
-            // 处理请求错误
+            println!("Error sending request");
             eprintln!("Error making XHR request: {}", e);
             Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(Body::from("Internal Server Error")).unwrap()
         },
     };
-
+    println!("request done");
+    
     // 是否把响应码、响应头、响应体一并放在body，结构为XHRResponseAll
     if is_throw_headers.unwrap_or(false) {
         let status_code = res.status().as_u16() as i32;
@@ -77,9 +85,16 @@ pub async fn handle_xhr<T>(req: Request<T>) -> Response<Body> where T: hyper::bo
     return res
 }
 
+async fn send_request(request: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+    println!("Sending request :::: {:?}", request);
+    let response = CLIENT.request(request).await?;
+    Ok(response)
+}
+
 pub async fn get_options<T>(req: Request<T>) -> Result<XHRData, String>  where T: hyper::body::HttpBody + Send + 'static,  {
     if req.method() == Method::GET {
         let uri = req.uri().to_string();
+        eprintln!("full uri: {}", uri);
         let secret = get_secret_str();
         let is_pass_secret = handle_xhr_is_pass_secret(&req);
         let mut uri_str = if is_pass_secret {
