@@ -66,23 +66,15 @@ pub async fn handle_xhr<T>(req: Request<T>) -> Response<Body> where T: hyper::bo
         },
     };
     println!("request done");
-    
-    // 是否把响应码、响应头、响应体一并放在body，结构为XHRResponseAll
-    if is_throw_headers.unwrap_or(false) {
-        let status_code = res.status().as_u16() as i32;
-        let headers = res.headers().iter().map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string())).collect::<HashMap<String, String>>();
-        let body_bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
-        let body = String::from_utf8_lossy(&body_bytes).to_string();
-        let xhr_response = XHRResponseAll {
-            status_code,
-            headers,
-            body,
-        };
-        let json_response = serde_json::to_string(&xhr_response).unwrap();
-        return Response::builder().status(StatusCode::OK).header("Content-Type", "application/json").body(Body::from(json_response)).unwrap();
-    }
 
-    return res
+    let mut response = Response::builder();
+    if res.status().is_success() {
+        response = response.status(StatusCode::OK);
+    } else {
+        response = response.status(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+    let body = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    return response.body(Body::from(body)).unwrap();
 }
 
 async fn send_request(request: Request<Body>) -> Result<Response<Body>, hyper::Error> {
