@@ -1,21 +1,20 @@
 mod types;
-mod module;
 mod utils;
+mod module;
 use utils::get_secret_str;
+use std::env;
 use module::{
-    handle_command,
-    handle_command_is_match_route,
-    handle_xhr,
-    handle_xhr_is_match_route,
-    handle_xhr_is_pass_secret,
     handle_doc,
     handle_doc_is_match_route,
+    handle_xhr_is_match_route,
+    handle_xhr_is_pass_secret,
+    handle_xhr,
 };
-use std::env;
-use std::net::SocketAddr;
-use std::convert::Infallible;
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Request, Response, Server, header::HeaderValue};
+use tide::Request;
+use tide::Response;
+use tide;
+use tide::prelude::*;
+
 
 #[tokio::main]
 async fn main() {
@@ -28,31 +27,28 @@ async fn main() {
     println!("运行端口：{}", port);
 
     // 创建服务
-    let make_svc = make_service_fn(|_conn| async { Ok::<_, Infallible>(service_fn(handle_request)) });
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    let server = Server::builder(hyper::server::conn::AddrIncoming::bind(&addr).unwrap()).serve(make_svc);
-    if let Err(e) = server.await {
-        eprintln!("server error: {}", e);
-    }
+    let mut app = tide::new();
+    app.at("*").all(handle_request);
+    let _ = app.listen(format!("0.0.0.0:{}", port)).await;
 }
 
-async fn handle_request(req: Request<Body>) -> Result<Response<Body>, String> {
+
+async fn handle_request(mut req: Request<()>) -> tide::Result {
     let secret_pass =  match () {
-        _ if handle_xhr_is_pass_secret(&req) => true,
         _ if handle_doc_is_match_route(&req) => true,
+        _ if handle_xhr_is_pass_secret(&req) => true,
         _ => false,
     };
     
     let is_valid = check_secret(&req);
     if !is_valid && !secret_pass {
-        return Ok(Response::builder().status(hyper::StatusCode::UNAUTHORIZED).body(Body::from("401")).unwrap());
+        return Ok(Response::builder(401).body("401").build());
     }
 
-    let mut resp = match () {
-        _ if handle_command_is_match_route(&req) => handle_command(req).await,
+    let mut resp: Response = match () {
         _ if handle_doc_is_match_route(&req) => handle_doc(),
-        _ if handle_xhr_is_match_route(&req) => handle_xhr(req).await,
-        _ => Response::builder().status(hyper::StatusCode::NOT_FOUND).body(Body::from("404")).expect("Failed to create NOT_FOUND response"),
+        _ if handle_xhr_is_match_route::<()>(&req) => handle_xhr(req).await,
+        _ => Response::builder(200).body("body").build(),
     };
     // 支持跨域
     for header in [
@@ -60,7 +56,7 @@ async fn handle_request(req: Request<Body>) -> Result<Response<Body>, String> {
         ("Access-Control-Allow-Methods", "*"),
         ("Access-Control-Allow-Origin", "*"),
     ] {
-        resp.headers_mut().insert(header.0, header.1.parse().unwrap());
+        resp.insert_header(header.0, header.1);
     }
     println!("[main] route done");
 
@@ -82,12 +78,13 @@ fn parse_secret() -> String {
     }
 }
 
-fn check_secret(req: &hyper::Request<hyper::Body>) -> bool {
+fn check_secret(req: &Request<()>) -> bool {
     let secret = get_secret_str();
-    let secret_header = match HeaderValue::from_str(&secret) {
-        Ok(header_value) => header_value,
-        Err(_) => return false,
-    };
-    // 检查请求头的 s 是否与环境变量的 SECRET 相同
-    req.headers().get("s") == Some(&secret_header)
+    if let Some(header_values) = req.header("s") {
+        if let Some(header_value) = header_values.iter().next() {
+            let header_value_str = header_value.to_string();
+            return header_value_str == secret;
+        }
+    }
+    false
 }

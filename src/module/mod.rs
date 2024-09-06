@@ -1,9 +1,9 @@
-mod cmd;
+// mod cmd;
 mod xhr;
 mod doc;
 
-pub use cmd::handle_command;
-pub use cmd::handle_command_is_match_route;
+// pub use cmd::handle_command;
+// pub use cmd::handle_command_is_match_route;
 pub use xhr::handle_xhr;
 pub use xhr::handle_xhr_is_match_route;
 pub use xhr::handle_xhr_is_pass_secret;

@@ -1,92 +1,103 @@
-use hyper::{Client, Request, Body, Response, Method, StatusCode, client::{HttpConnector}};
-use hyper::header::{HeaderValue};
-use hyper_tls::HttpsConnector;
 use serde_json::Value;
 use crate::types::{XHRData, XHRResponseAll};
 use crate::utils::{get_secret_str};
 use serde_json::from_slice;
 use std::collections::HashMap;
+use tide::Request;
+use tide::Response;
+use tide::Body;
+use http_types::Method;
+use std::str::FromStr;
+use surf:: {Client, Body as SurfBody};
+
 
 const API_PREFIX: &str = "/api/xhr";
 
 lazy_static::lazy_static! {
-    static ref CLIENT: Client<HttpsConnector<HttpConnector>> = {
-        let https = HttpsConnector::new();
-        Client::builder().build::<_, Body>(https)
+    static ref CLIENT: Client = {
+        Client::new()
     };
 }
 
-pub async fn handle_xhr<T>(req: Request<T>) -> Response<Body> where T: hyper::body::HttpBody + Send + 'static,{
-    let options = match get_options(req).await {
+pub async fn handle_xhr(mut req: Request<()>) -> Response {
+    let options = match get_options::<()>(&mut req).await {
         Ok(data) => data,
         Err(err) => {
             eprintln!("[handle_xhr] Error getting options: {}", err);
-            return Response::builder().status(StatusCode::BAD_REQUEST).body(Body::from("Bad Request")).unwrap();
+            return Response::builder(500).body(Body::from("Bad Request")).build();
         }
     };
     eprintln!("Parsed JSON data: {:?}", options);
-
-
+    
     let url = options.url.trim();
-    let method = options.method.as_str();
+    let method = Method::from_str(&options.method).unwrap();
     let headers = options.headers;
     let is_throw_headers = options.throw_headers;
     let body = if options.body.is_empty() {
-        Body::empty()
+        SurfBody::empty()
     } else {
-        Body::from(options.body)
+        SurfBody:: from_string(options.body)
     };
+    println!("request url: {}", url);
+    
+    let mut resp = CLIENT.request(method, url).body(body).send().await.unwrap();
+
+    let status = resp.status();
+    println!("request done {}", status);
+    // let body = Body::from(resp.body_bytes().await.unwrap());
+    let body = resp.take_body();
+    let mut tide_response = Response::new(status);
+    tide_response.set_body(body);
+    for (key, value) in resp.iter() {
+        tide_response.insert_header(key.as_str(), value);
+    }
+    return tide_response;
 
     // 构建请求
-    println!("request url: {}", url);
-    let mut request_builder = Request::builder().method(method).uri(url);
-    // 添加请求头
-    for (key, value) in headers {
-        let header_value = match value {
-            Value::String(s) => s,
-            Value::Number(n) => n.to_string(),
-            _ => continue,
-        };
-        request_builder = request_builder.header(key.as_str(), HeaderValue::from_str(&header_value).unwrap());
-    }
     
-    let request = request_builder.body(Body::from(body)).expect("Failed to build request body");
-    println!("request_builder done");
+    // let mut request_builder = Request::builder().method(method).uri(url);
+    // // 添加请求头
+    // for (key, value) in headers {
+    //     let header_value = match value {
+    //         Value::String(s) => s,
+    //         Value::Number(n) => n.to_string(),
+    //         _ => continue,
+    //     };
+    //     request_builder = request_builder.header(key.as_str(), HeaderValue::from_str(&header_value).unwrap());
+    // }
     
-    // 发送请求并获取响应
-    let res = match send_request(request).await {
-        Ok(response) => {
-            println!("Request sent successfully");
-            response
-        },
-        Err(e) => {
-            println!("Error sending request");
-            eprintln!("Error making XHR request: {}", e);
-            Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(Body::from("Internal Server Error")).unwrap()
-        },
-    };
-    println!("request done");
+    // let request = request_builder.body(Body::from(body)).expect("Failed to build request body");
+    // println!("request_builder done");
+    
+    // // 发送请求并获取响应
+    // let res = match send_request(request).await {
+    //     Ok(response) => {
+    //         println!("Request sent successfully");
+    //         response
+    //     },
+    //     Err(e) => {
+    //         println!("Error sending request");
+    //         eprintln!("Error making XHR request: {}", e);
+    //         Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(Body::from("Internal Server Error")).unwrap()
+    //     },
+    // };
+    // println!("request done");
 
-    let mut response = Response::builder();
-    if res.status().is_success() {
-        response = response.status(StatusCode::OK);
-    } else {
-        response = response.status(StatusCode::INTERNAL_SERVER_ERROR);
-    }
-    let body = hyper::body::to_bytes(res.into_body()).await.unwrap();
-    return response.body(Body::from(body)).unwrap();
+    // let mut response = Response::builder();
+    // if res.status().is_success() {
+    //     response = response.status(StatusCode::OK);
+    // } else {
+    //     response = response.status(StatusCode::INTERNAL_SERVER_ERROR);
+    // }
+    // let body = Body::to_bytes(res.into_body()).await.unwrap();
+    // return response.body(Body::from(body)).unwrap();
 }
 
-async fn send_request(request: Request<Body>) -> Result<Response<Body>, hyper::Error> {
-    println!("Sending request :::: {:?}", request);
-    let response = CLIENT.request(request).await?;
-    Ok(response)
-}
-
-pub async fn get_options<T>(req: Request<T>) -> Result<XHRData, String>  where T: hyper::body::HttpBody + Send + 'static,  {
-    if req.method() == Method::GET {
-        let uri = req.uri().to_string();
-        eprintln!("full uri: {}", uri);
+pub async fn get_options<T>(req: &mut tide::Request<()>) -> Result<XHRData, String> where T: Send + 'static, {
+    if req.method() == Method::Get {
+        let full_uri = req.url().to_string();
+        let host = req.host().expect("REASON").to_string();
+        let uri = full_uri.replace(&format!("http://{}", host), "");
         let secret = get_secret_str();
         let is_pass_secret = handle_xhr_is_pass_secret(&req);
         let mut uri_str = if is_pass_secret {
@@ -115,8 +126,8 @@ pub async fn get_options<T>(req: Request<T>) -> Result<XHRData, String>  where T
         };
         return Ok(data);
     } 
-    else if req.method() == Method::POST {
-        let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
+    else if req.method() == Method::Post {
+        let body_bytes = match req.body_bytes().await {
             Ok(bytes) => bytes,
             Err(_) => return Err("Parse Err".to_string()),
         };
@@ -131,13 +142,13 @@ pub async fn get_options<T>(req: Request<T>) -> Result<XHRData, String>  where T
     Err("Unsupported request method".to_string())
 }
 
-pub fn handle_xhr_is_match_route<T>(req: &hyper::Request<T>) -> bool {
-    return req.uri().path().starts_with(API_PREFIX);
+pub fn handle_xhr_is_match_route<T>(req: &Request<()>) -> bool {
+    return req.url().path().starts_with(API_PREFIX);
 }
 
 pub fn handle_xhr_is_pass_secret<T>(req: &Request<T>) -> bool {
     let secret = get_secret_str();
-    let path = req.uri().path();
+    let path = req.url().path();
     let expected_path_prefix = format!("{}/{}/", API_PREFIX, secret);
     path.starts_with(&expected_path_prefix)
 }
